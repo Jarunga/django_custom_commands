@@ -14,8 +14,8 @@ class Command(CommandMixin,BaseCommand):
 
     def remove(self,target):
         super().remove(target)
-        if target.__through_dir is not None:
-            shutil.rmtree(target.__through_dir)
+        if target.through_dir is not None:
+            shutil.rmtree(target.through_dir)
 
     def main(self,target):
 

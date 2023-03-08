@@ -9,7 +9,8 @@ from pathlib import Path
 import glob
 import importlib
 import sys
-from .settings import DATETIME_FIELDS
+from .settings import DATETIME_FIELDS,UPDATE_FIELD_NAME
+from django.utils import timezone
 
 class Target:
     
@@ -56,6 +57,9 @@ class Target:
 
         df=self.native_to_aware(df)
         df=df.applymap(lambda x:None if str(x)=='' else str(x))
+
+        if sys.argv[1]=='bulk_update':
+            df[UPDATE_FIELD_NAME]=timezone.now()
 
         return df
 
