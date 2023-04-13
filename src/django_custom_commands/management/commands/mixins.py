@@ -9,11 +9,20 @@ from pathlib import Path
 import glob
 import importlib
 import sys
-from .settings import DATETIME_FIELDS,UPDATE_FIELD_NAME
 from django.utils import timezone
 
 class Target:
-    
+
+    if hasattr(settings,'CUSTOM_COMMANDS_DATETIME_FIELDS'):
+        DATETIME_FIELDS=settings.CUSTOM_COMMANDS_DATETIME_FIELDS
+    else:
+        DATETIME_FIELDS=['created_at','updated_at','got_at']
+
+    if hasattr(settings,'CUSTOM_COMMANDS_UPDATE_FIELD_NAME'):
+        UPDATE_FIELD_NAME=settings.CUSTOM_COMMANDS_UPDATE_FIELD_NAME
+    else:
+        UPDATE_FIELD_NAME='updated_at'
+        
     def __init__(self,path,is_through=False):
         self.__path=path
         self.__app_name=Path(path).parts[1]
@@ -59,12 +68,12 @@ class Target:
         df=df.applymap(lambda x:None if str(x)=='' else str(x))
 
         if sys.argv[1]=='bulk_update':
-            df[UPDATE_FIELD_NAME]=timezone.now()
+            df[self.UPDATE_FIELD_NAME]=timezone.now()
 
         return df
 
     def native_to_aware(self,df):
-        for field in DATETIME_FIELDS:
+        for field in self.DATETIME_FIELDS:
             if field in df.columns:
                 df[field]=df[field].map(lambda x:make_aware(datetime.fromisoformat(str(x))) if str(x)!="" else "")
         return df

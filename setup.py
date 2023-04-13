@@ -12,7 +12,7 @@ def _requires_from_file(filename):
 
 setup(
     name="django_custom_commands",
-    version="0.0.1",
+    version="1.2.0",
     license="ライセンス",
     description="djangoのカスタムコマンド",
     author="jarunga",
