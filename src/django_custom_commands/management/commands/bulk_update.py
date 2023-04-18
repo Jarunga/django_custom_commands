@@ -13,6 +13,6 @@ class Command(CommandMixin,BaseCommand):
 
     def main(self,target):
 
-        target.model.objects.bulk_update(target.data_list,fields=[field for field in target.df.columns if field!=target.model._meta.pk.name]+[target.UPDATE_FIELD_NAME])
+        target.model.objects.bulk_update(target.data_list,fields=[field for field in target.df.columns if field!=target.model._meta.pk.name]+[target.UPDATE_FIELD_NAME],batch_size=10000)
  
         print("更新が完了しました。")

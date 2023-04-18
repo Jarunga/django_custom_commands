@@ -10,6 +10,7 @@ import glob
 import importlib
 import sys
 from django.utils import timezone
+import shutil
 
 class Target:
 
@@ -23,23 +24,26 @@ class Target:
     else:
         UPDATE_FIELD_NAME='updated_at'
         
-    def __init__(self,path,is_through=False):
+    def __init__(self,path):
         self.__path=path
         self.__app_name=Path(path).parts[1]
         
-        if is_through:
-            self.__model_name=os.path.splitext(os.path.basename(Path(path).parts[-2]))[0]
-            self.__col_name=self.get_col_name()
-        else:
-            self.__model_name=os.path.splitext(os.path.basename(Path(path).parts[-1]))[0]
-            self.__col_name=None
-        
+        self.__model_name=self.get_model_name()
+        self.__col_name=self.get_col_name()
+
         self.__through_dir=self.get_through_dir()
-
         self.__model=self.get_model()
-        self.__df=self.read_frame()
-        self.__data_list=self.get_data_list()
 
+        if os.path.isfile(self.path):
+            self.__df=self.read_frame()
+            self.__data_list=self.get_data_list()           
+
+    def get_model_name(self):
+        return os.path.splitext(os.path.basename(Path(self.path).parts[-1]))[0]
+
+    def get_col_name(self):
+        return None
+    
     def get_through_dir(self):
         through_dir=os.path.join(os.path.dirname(self.path),self.model_name)
 
@@ -48,16 +52,10 @@ class Target:
         else:
             return None
 
-    def get_col_name(self):
-        return os.path.splitext(os.path.basename(Path(self.path).parts[-1]))[0]
-
     def get_model(self):
         models=importlib.import_module('%s.models'% self.app_name)
 
-        if self.col_name is None:        
-            model=eval('models.%s' % self.model_name)
-        else:
-            model=eval("models.%s.%s.through" % (self.model_name,self.col_name))
+        model=eval('models.%s' % self.model_name)
 
         return model
 
@@ -117,11 +115,26 @@ class Target:
     def col_name(self):
         return self.__col_name
 
+class TargetM2M(Target):
+
+    def get_model_name(self):
+        return os.path.splitext(os.path.basename(Path(self.path).parts[-2]))[0]
+
+    def get_col_name(self):
+        return os.path.splitext(os.path.basename(Path(self.path).parts[-1]))[0]
+
+    def get_model(self):
+        models=importlib.import_module('%s.models'% self.app_name)
+        model=eval("models.%s.%s.through" % (self.model_name,self.col_name))
+
+        return model
+    
 class CommandMixin:
 
     def get_directory(self, *args, **options):
-        if 'directory' in options:
-            directory=os.path.join(options['directory'],'*.csv')
+        
+        if options['model'] is not None:
+            directory=os.path.join('datafiles','**',options['model']+'*')
             
         else:
             directory=os.path.join('datafiles','**',sys.argv[-1],'*.csv')
@@ -129,30 +142,34 @@ class CommandMixin:
         return directory
 
     def remove(self,target):
-        os.remove(target.path)
+        shutil.rmtree(target.path)
 
     # コマンドが実行された際に呼ばれるメソッド
     def handle(self, *args, **options):
 
         for path in glob.glob(self.get_directory(*args, **options),recursive=True):
-            print(path)
 
             target=Target(path)
 
-            print("「%s」テーブル %s件 (%s) を追加します。はい=1,いいえ=0" % (target.model_name,str(len(target.df)),",".join([n for n in target.df.columns])))
+            if os.path.isfile(target.path):
 
-            select=input()
+                print("「%s」テーブル %s件 (%s) を追加します。はい=1,いいえ=0" % (target.model_name,str(len(target.df)),",".join([n for n in target.df.columns])))
 
-            if select=="1":
+                select=input()
+
+                if select=="1":
+                    self.main(target)
+                    self.remove(target)
+
+                else:
+                    print("更新がキャンセルされました。")
+
+            else:
                 self.main(target)
                 self.remove(target)
 
-            else:
-                print("更新がキャンセルされました。")
-
     def add_arguments(self , parser):
-        parser.add_argument('--file', action='append', type=str)
-        parser.add_argument('--models', action='append', type=str)
+        parser.add_argument('--model', type=str)
         parser.add_argument('--all', action='store_true')
 
 
