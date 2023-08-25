@@ -9,41 +9,30 @@ from pathlib import Path
 import glob
 import importlib
 import sys
+from .settings import DATETIME_FIELDS,UPDATE_FIELD_NAME
 from django.utils import timezone
-import shutil
 
 class Target:
-
-    if hasattr(settings,'CUSTOM_COMMANDS_DATETIME_FIELDS'):
-        DATETIME_FIELDS=settings.CUSTOM_COMMANDS_DATETIME_FIELDS
-    else:
-        DATETIME_FIELDS=['created_at','updated_at','got_at']
-
-    if hasattr(settings,'CUSTOM_COMMANDS_UPDATE_FIELD_NAME'):
-        UPDATE_FIELD_NAME=settings.CUSTOM_COMMANDS_UPDATE_FIELD_NAME
-    else:
-        UPDATE_FIELD_NAME='updated_at'
-        
-    def __init__(self,path):
+    
+    def __init__(self,path,is_through=False):
         self.__path=path
         self.__app_name=Path(path).parts[1]
         
-        self.__model_name=self.get_model_name()
-        self.__col_name=self.get_col_name()
-
+        if is_through:
+            self.__model_name=os.path.splitext(os.path.basename(Path(path).parts[-2]))[0]
+            self.__col_name=self.get_col_name()
+        else:
+            self.__model_name=os.path.splitext(os.path.basename(Path(path).parts[-1]))[0]
+            self.__col_name=None
+        
         self.__through_dir=self.get_through_dir()
+
         self.__model=self.get_model()
 
-        if os.path.isfile(self.path):
+        if '.csv' in path:
             self.__df=self.read_frame()
-            self.__data_list=self.get_data_list()           
+            self.__data_list=self.get_data_list()
 
-    def get_model_name(self):
-        return os.path.splitext(os.path.basename(Path(self.path).parts[-1]))[0]
-
-    def get_col_name(self):
-        return None
-    
     def get_through_dir(self):
         through_dir=os.path.join(os.path.dirname(self.path),self.model_name)
 
@@ -52,10 +41,16 @@ class Target:
         else:
             return None
 
+    def get_col_name(self):
+        return os.path.splitext(os.path.basename(Path(self.path).parts[-1]))[0]
+
     def get_model(self):
         models=importlib.import_module('%s.models'% self.app_name)
 
-        model=eval('models.%s' % self.model_name)
+        if self.col_name is None:        
+            model=eval('models.%s' % self.model_name)
+        else:
+            model=eval("models.%s.%s.through" % (self.model_name,self.col_name))
 
         return model
 
@@ -66,12 +61,12 @@ class Target:
         df=df.applymap(lambda x:None if str(x)=='' else str(x))
 
         if sys.argv[1]=='bulk_update':
-            df[self.UPDATE_FIELD_NAME]=timezone.now()
+            df[UPDATE_FIELD_NAME]=timezone.now()
 
         return df
 
     def native_to_aware(self,df):
-        for field in self.DATETIME_FIELDS:
+        for field in DATETIME_FIELDS:
             if field in df.columns:
                 df[field]=df[field].map(lambda x:make_aware(datetime.fromisoformat(str(x))) if str(x)!="" else "")
         return df
@@ -115,43 +110,29 @@ class Target:
     def col_name(self):
         return self.__col_name
 
-class TargetM2M(Target):
-
-    def get_model_name(self):
-        return os.path.splitext(os.path.basename(Path(self.path).parts[-2]))[0]
-
-    def get_col_name(self):
-        return os.path.splitext(os.path.basename(Path(self.path).parts[-1]))[0]
-
-    def get_model(self):
-        models=importlib.import_module('%s.models'% self.app_name)
-        model=eval("models.%s.%s.through" % (self.model_name,self.col_name))
-
-        return model
-    
 class CommandMixin:
 
     def get_directory(self, *args, **options):
-        
-        if options['model'] is not None:
-            directory=os.path.join('datafiles','**',options['model']+'*')
+        if 'directory' in options:
+            directory=os.path.join(options['directory'],'*.csv')
             
         else:
-            directory=os.path.join('datafiles','**',sys.argv[-1],'*.csv')
+            directory=os.path.join('datafiles','**',sys.argv[-1],'*')
 
         return directory
 
     def remove(self,target):
-        shutil.rmtree(target.path)
+        os.remove(target.path)
 
     # コマンドが実行された際に呼ばれるメソッド
     def handle(self, *args, **options):
 
         for path in glob.glob(self.get_directory(*args, **options),recursive=True):
+            print(path)
 
             target=Target(path)
 
-            if os.path.isfile(target.path):
+            if '.csv' in path:
 
                 print("「%s」テーブル %s件 (%s) を追加します。はい=1,いいえ=0" % (target.model_name,str(len(target.df)),",".join([n for n in target.df.columns])))
 
@@ -160,16 +141,30 @@ class CommandMixin:
                 if select=="1":
                     self.main(target)
                     self.remove(target)
+                    print("更新が完了しました。") 
 
                 else:
                     print("更新がキャンセルされました。")
 
             else:
-                self.main(target)
-                self.remove(target)
+                
+                if target.through_dir is not None:
+                    for path in glob.glob(target.through_dir+'/*'):
+                        target_m2m=Target(path,is_through=True)
+                        print("throughフィールド_"+target_m2m.col_name+"の更新をします。はい=1,いいえ=0")
+                        select=input()
+
+                        if select=="1":
+                            self.main(target_m2m)
+                            self.remove(target_m2m)
+                            print("更新が完了しました。")
+                            
+                        else:
+                            print("更新がキャンセルされました。")
 
     def add_arguments(self , parser):
-        parser.add_argument('--model', type=str)
+        parser.add_argument('--file', action='append', type=str)
+        parser.add_argument('--models', action='append', type=str)
         parser.add_argument('--all', action='store_true')
 
 
