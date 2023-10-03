@@ -55,7 +55,7 @@ class Target:
         return model
 
     def read_frame(self):
-        df=pd.read_csv(self.path,dtype=str,na_filter=False)
+        df=pd.read_csv(self.path,dtype=str,na_filter=False,encoding='utf-8_sig')
 
         df=self.native_to_aware(df)
         df=df.applymap(lambda x:None if str(x)=='' else str(x))
